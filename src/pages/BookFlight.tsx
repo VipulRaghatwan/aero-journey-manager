@@ -1,739 +1,572 @@
 
-import { useState, useEffect } from "react";
-import { useLocation, useParams, useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { Check, CreditCard, Loader2, Plane, ShieldCheck, ChevronsRight } from "lucide-react";
-import { format } from "date-fns";
-import mockData from "@/services/mockData";
+import { Plane, CreditCard, User, CalendarDays, Clock, MapPin, AlertCircle } from "lucide-react";
 import FlightCard, { FlightType } from "@/components/flights/FlightCard";
-import FlightSearchForm from "@/components/flights/FlightSearchForm";
+import { format } from "date-fns";
+import dbService from "@/services/dbService";
 
 const BookFlight = () => {
+  const { id: flightId } = useParams();
   const location = useLocation();
-  const params = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   
-  const [activeStep, setActiveStep] = useState<number>(0);
-  const [availableFlights, setAvailableFlights] = useState<FlightType[]>([]);
+  const [searchCriteria, setSearchCriteria] = useState<any>(
+    location.state?.search || {}
+  );
+  
+  const [flights, setFlights] = useState<FlightType[]>([]);
   const [selectedFlight, setSelectedFlight] = useState<FlightType | null>(null);
-  const [searchParams, setSearchParams] = useState(location.state?.search || null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [searchPerformed, setSearchPerformed] = useState(false);
   
-  // Passenger information form
-  const [title, setTitle] = useState("Mr");
-  const [firstName, setFirstName] = useState(user?.name?.split(" ")[0] || "");
-  const [lastName, setLastName] = useState(user?.name?.split(" ")[1] || "");
-  const [email, setEmail] = useState(user?.email || "");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [passenger, setPassenger] = useState({
+    name: user?.name || "",
+    email: user?.email || "",
+    phone: "",
+    address: "",
+    passportNumber: ""
+  });
+  
+  const [paymentDetails, setPaymentDetails] = useState({
+    cardNumber: "",
+    cardName: "",
+    expiryDate: "",
+    cvv: ""
+  });
+  
+  const [currentTab, setCurrentTab] = useState("search");
   const [seatSelection, setSeatSelection] = useState("");
+  const [availableSeats, setAvailableSeats] = useState<string[]>([]);
   
-  // Payment information
-  const [paymentMethod, setPaymentMethod] = useState("credit-card");
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardName, setCardName] = useState("");
-  const [expiryDate, setExpiryDate] = useState("");
-  const [cvv, setCvv] = useState("");
-  
-  // Set default passenger count
-  const passengerCount = searchParams?.passengers || 1;
-
-  // Search for specific flight by ID from URL params
   useEffect(() => {
-    if (params.flightId) {
-      const flight = mockData.flights.find(f => f.id === params.flightId);
-      if (flight) {
-        setSelectedFlight(flight);
-        setActiveStep(1);
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Flight not found",
-          description: "The requested flight could not be found.",
-        });
-        navigate("/book-flight");
-      }
-    } else if (searchParams) {
-      searchFlights();
+    if (flightId) {
+      // If flightId is provided, fetch that specific flight
+      setLoading(true);
+      dbService.getFlightById(flightId)
+        .then(flight => {
+          if (flight) {
+            setSelectedFlight(flight);
+            setCurrentTab("passenger");
+            generateAvailableSeats(flight.seatsAvailable);
+          } else {
+            toast({
+              title: "Flight Not Found",
+              description: "The requested flight could not be found.",
+              variant: "destructive"
+            });
+            navigate("/book-flight");
+          }
+        })
+        .finally(() => setLoading(false));
+    } else if (Object.keys(searchCriteria).length > 0) {
+      // If search criteria is provided via state, perform search automatically
+      handleSearch();
     }
-  }, [params.flightId, searchParams]);
-
-  const searchFlights = () => {
-    if (!searchParams) return;
+  }, [flightId]);
+  
+  useEffect(() => {
+    if (selectedFlight) {
+      generateAvailableSeats(selectedFlight.seatsAvailable);
+    }
+  }, [selectedFlight]);
+  
+  const generateAvailableSeats = (count: number) => {
+    const seats = [];
+    const rows = ['A', 'B', 'C', 'D', 'E', 'F'];
     
-    setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      const { from, to, departDate } = searchParams;
-      
-      let filteredFlights = mockData.flights.filter(flight => 
-        flight.departureAirport.code === from && 
-        flight.arrivalAirport.code === to &&
-        flight.status !== "cancelled" &&
-        flight.seatsAvailable >= passengerCount
-      );
-      
-      if (departDate) {
-        const searchDate = new Date(departDate);
-        searchDate.setHours(0, 0, 0, 0);
-        
-        filteredFlights = filteredFlights.filter(flight => {
-          const flightDate = new Date(flight.date);
-          flightDate.setHours(0, 0, 0, 0);
-          return flightDate.getTime() === searchDate.getTime();
-        });
+    for (let i = 1; i <= Math.ceil(count / rows.length); i++) {
+      for (let j = 0; j < rows.length; j++) {
+        if (seats.length < count) {
+          seats.push(`${i}${rows[j]}`);
+        }
       }
-      
-      setAvailableFlights(filteredFlights);
-      setIsLoading(false);
-    }, 1500);
+    }
+    
+    setAvailableSeats(seats);
   };
-
-  const handleFlightSelect = (flight: FlightType) => {
+  
+  const handleSearch = () => {
+    setLoading(true);
+    setSearchPerformed(true);
+    
+    dbService.searchFlights(searchCriteria)
+      .then(results => {
+        setFlights(results);
+      })
+      .catch(error => {
+        console.error("Search error:", error);
+        toast({
+          title: "Search Error",
+          description: "An error occurred while searching for flights.",
+          variant: "destructive"
+        });
+      })
+      .finally(() => setLoading(false));
+  };
+  
+  const handleFlightSelection = (flight: FlightType) => {
     setSelectedFlight(flight);
-    setActiveStep(1);
+    setCurrentTab("passenger");
   };
-
-  const handleSubmitPassengerInfo = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Validate form
-    if (!firstName || !lastName || !email || !phone) {
-      toast({
-        variant: "destructive",
-        title: "Missing information",
-        description: "Please fill in all required fields.",
-      });
-      return;
-    }
+  
+  const handleBooking = () => {
+    if (!selectedFlight || !user) return;
     
-    setActiveStep(2);
-  };
-
-  const handleSubmitPayment = (e: React.FormEvent) => {
-    e.preventDefault();
+    setLoading(true);
     
-    // Validate form if credit card
-    if (paymentMethod === "credit-card") {
-      if (!cardNumber || !cardName || !expiryDate || !cvv) {
+    const bookingData = {
+      flightId: selectedFlight.id,
+      flight: selectedFlight,
+      passengerName: passenger.name,
+      passengerEmail: user.email,
+      seatNumber: seatSelection,
+      status: "confirmed",
+      paymentStatus: "paid"
+    };
+    
+    dbService.createBooking(bookingData)
+      .then(booking => {
         toast({
-          variant: "destructive",
-          title: "Missing information",
-          description: "Please fill in all payment details.",
+          title: "Booking Confirmed!",
+          description: `Your flight has been booked successfully. Booking reference: ${booking.id}`,
         });
-        return;
-      }
-      
-      if (cardNumber.length < 16) {
-        toast({
-          variant: "destructive",
-          title: "Invalid card number",
-          description: "Please enter a valid credit card number.",
-        });
-        return;
-      }
-    }
-    
-    setIsLoading(true);
-    
-    // Simulate API call for payment processing
-    setTimeout(() => {
-      setIsLoading(false);
-      setActiveStep(3);
-      
-      toast({
-        title: "Booking confirmed!",
-        description: "Your flight has been successfully booked.",
-      });
-      
-      // After 2 seconds, redirect to bookings page
-      setTimeout(() => {
+        
         navigate("/my-bookings");
-      }, 3000);
-    }, 2000);
+      })
+      .catch(error => {
+        console.error("Booking error:", error);
+        toast({
+          title: "Booking Error",
+          description: "An error occurred while processing your booking.",
+          variant: "destructive"
+        });
+      })
+      .finally(() => setLoading(false));
   };
-
+  
   return (
     <div className="container mx-auto px-4 py-8 max-w-screen-xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold">Book Your Flight</h1>
-        <p className="text-gray-600">
-          {activeStep === 0 && "Search and select a flight"}
-          {activeStep === 1 && "Enter passenger information"}
-          {activeStep === 2 && "Payment details"}
-          {activeStep === 3 && "Booking confirmation"}
-        </p>
+        <h1 className="text-3xl font-bold">Book a Flight</h1>
+        <p className="text-gray-600">Search and book your next journey with SkyWave Airlines</p>
       </div>
-
-      {/* Stepper */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between max-w-3xl mx-auto">
-          {["Select Flight", "Passenger Info", "Payment", "Confirmation"].map((step, i) => (
-            <div key={i} className="flex flex-col items-center">
-              <div 
-                className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  i <= activeStep 
-                    ? "bg-primary text-white" 
-                    : "bg-gray-200 text-gray-500"
-                }`}
-              >
-                {i < activeStep ? (
-                  <Check className="h-5 w-5" />
-                ) : (
-                  <span>{i + 1}</span>
-                )}
+      
+      <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-6">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="search">Search Flights</TabsTrigger>
+          <TabsTrigger value="passenger" disabled={!selectedFlight}>Passenger Details</TabsTrigger>
+          <TabsTrigger value="payment" disabled={!selectedFlight || !passenger.name}>Payment</TabsTrigger>
+        </TabsList>
+        
+        {/* Search Tab */}
+        <TabsContent value="search">
+          <Card>
+            <CardHeader>
+              <CardTitle>Flight Search</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="from">From</Label>
+                  <Select 
+                    value={searchCriteria.from || ""} 
+                    onValueChange={(value) => setSearchCriteria({...searchCriteria, from: value})}
+                  >
+                    <SelectTrigger id="from">
+                      <SelectValue placeholder="Departure Airport" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="JFK">New York (JFK)</SelectItem>
+                      <SelectItem value="LAX">Los Angeles (LAX)</SelectItem>
+                      <SelectItem value="ORD">Chicago (ORD)</SelectItem>
+                      <SelectItem value="ATL">Atlanta (ATL)</SelectItem>
+                      <SelectItem value="SFO">San Francisco (SFO)</SelectItem>
+                      <SelectItem value="LHR">London (LHR)</SelectItem>
+                      <SelectItem value="CDG">Paris (CDG)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <Label htmlFor="to">To</Label>
+                  <Select 
+                    value={searchCriteria.to || ""} 
+                    onValueChange={(value) => setSearchCriteria({...searchCriteria, to: value})}
+                  >
+                    <SelectTrigger id="to">
+                      <SelectValue placeholder="Arrival Airport" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="JFK">New York (JFK)</SelectItem>
+                      <SelectItem value="LAX">Los Angeles (LAX)</SelectItem>
+                      <SelectItem value="ORD">Chicago (ORD)</SelectItem>
+                      <SelectItem value="ATL">Atlanta (ATL)</SelectItem>
+                      <SelectItem value="SFO">San Francisco (SFO)</SelectItem>
+                      <SelectItem value="LHR">London (LHR)</SelectItem>
+                      <SelectItem value="CDG">Paris (CDG)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <Label htmlFor="date">Date</Label>
+                  <Input 
+                    id="date" 
+                    type="date" 
+                    value={searchCriteria.date || ""} 
+                    onChange={(e) => setSearchCriteria({...searchCriteria, date: e.target.value})}
+                  />
+                </div>
               </div>
-              <span className={`text-sm mt-2 ${i <= activeStep ? "text-primary font-medium" : "text-gray-500"}`}>
-                {step}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="hidden sm:flex mt-3 justify-center">
-          <div className="relative max-w-3xl w-full">
-            <div className="absolute top-0 left-[10%] right-[10%] h-0.5 bg-gray-200"></div>
-            <div 
-              className="absolute top-0 left-[10%] h-0.5 bg-primary transition-all duration-500" 
-              style={{ width: `${activeStep * (80/3)}%` }}
-            ></div>
-          </div>
-        </div>
-      </div>
-
-      {/* Step 1: Flight Selection */}
-      {activeStep === 0 && (
-        <div>
-          {!searchParams && (
-            <Card className="mb-8">
-              <CardHeader>
-                <CardTitle>Find Your Flight</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <FlightSearchForm />
-              </CardContent>
-            </Card>
-          )}
-
-          {searchParams && (
-            <div>
-              <Card className="mb-6">
-                <CardContent className="p-6">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between">
-                    <div>
-                      <h2 className="text-lg font-medium mb-2">
-                        {searchParams.from} to {searchParams.to}
-                      </h2>
-                      <p className="text-gray-600">
-                        {searchParams.departDate ? format(new Date(searchParams.departDate), "EEE, MMM d, yyyy") : "Any date"} • {searchParams.passengers} {searchParams.passengers === 1 ? "passenger" : "passengers"}
-                      </p>
+              
+              <Button onClick={handleSearch} className="w-full" disabled={loading}>
+                {loading ? (
+                  <span className="flex items-center">
+                    <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
+                    Searching...
+                  </span>
+                ) : (
+                  <span className="flex items-center">
+                    <Plane className="mr-2 h-4 w-4" />
+                    Search Flights
+                  </span>
+                )}
+              </Button>
+              
+              {searchPerformed && (
+                <div className="mt-8 space-y-6">
+                  <h2 className="text-xl font-bold">Search Results</h2>
+                  
+                  {flights.length > 0 ? (
+                    <div className="space-y-4">
+                      {flights.map((flight) => (
+                        <div key={flight.id} className="relative">
+                          <FlightCard flight={flight} />
+                          <div className="mt-4 px-6 pb-6">
+                            <Button 
+                              onClick={() => handleFlightSelection(flight)}
+                              disabled={flight.seatsAvailable < 1 || flight.status === 'cancelled'}
+                              className="w-full md:w-auto"
+                            >
+                              Select This Flight
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
+                  ) : (
+                    <Card className="bg-muted/40">
+                      <CardContent className="flex flex-col items-center justify-center py-12">
+                        <AlertCircle className="h-12 w-12 text-gray-400 mb-4" />
+                        <h3 className="text-lg font-medium text-gray-700 mb-2">No flights found</h3>
+                        <p className="text-gray-500 mb-4 text-center">
+                          We couldn't find any flights matching your search criteria.
+                          Try different dates or airports.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        {/* Passenger Details Tab */}
+        <TabsContent value="passenger">
+          {selectedFlight && (
+            <div className="space-y-6">
+              <Card className="mb-6">
+                <CardContent className="pt-6">
+                  <FlightCard flight={selectedFlight} />
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader>
+                  <CardTitle>Passenger Information</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="passenger-name">Full Name</Label>
+                      <Input 
+                        id="passenger-name" 
+                        value={passenger.name} 
+                        onChange={(e) => setPassenger({...passenger, name: e.target.value})}
+                        placeholder="Enter your full name"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="passenger-email">Email</Label>
+                      <Input 
+                        id="passenger-email" 
+                        type="email" 
+                        value={passenger.email} 
+                        onChange={(e) => setPassenger({...passenger, email: e.target.value})}
+                        placeholder="Enter your email"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="passenger-phone">Phone Number</Label>
+                      <Input 
+                        id="passenger-phone" 
+                        value={passenger.phone} 
+                        onChange={(e) => setPassenger({...passenger, phone: e.target.value})}
+                        placeholder="Enter your phone number"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="passenger-passport">Passport/ID Number</Label>
+                      <Input 
+                        id="passenger-passport" 
+                        value={passenger.passportNumber} 
+                        onChange={(e) => setPassenger({...passenger, passportNumber: e.target.value})}
+                        placeholder="Enter passport or ID number"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2 col-span-2">
+                      <Label htmlFor="passenger-address">Address</Label>
+                      <Input 
+                        id="passenger-address" 
+                        value={passenger.address} 
+                        onChange={(e) => setPassenger({...passenger, address: e.target.value})}
+                        placeholder="Enter your address"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Seat Selection</h3>
+                    <p className="text-sm text-gray-500">
+                      Please select your preferred seat from the available options.
+                    </p>
+                    
+                    <div className="grid grid-cols-6 gap-2">
+                      {availableSeats.map((seat) => (
+                        <div key={seat} className="text-center">
+                          <button
+                            className={`w-12 h-12 rounded-md border transition-colors ${
+                              seatSelection === seat
+                                ? "bg-primary text-white border-primary"
+                                : "bg-white hover:border-primary"
+                            }`}
+                            onClick={() => setSeatSelection(seat)}
+                          >
+                            {seat}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="pt-4 flex justify-between">
+                    <Button variant="outline" onClick={() => setCurrentTab("search")}>
+                      Back to Search
+                    </Button>
                     <Button 
-                      variant="outline" 
-                      className="mt-3 md:mt-0"
-                      onClick={() => setSearchParams(null)}
+                      onClick={() => setCurrentTab("payment")}
+                      disabled={!passenger.name || !passenger.email || !seatSelection}
                     >
-                      Modify Search
+                      Continue to Payment
                     </Button>
                   </div>
                 </CardContent>
               </Card>
-
-              <div className="mb-6">
-                <h2 className="text-xl font-bold mb-4">Available Flights</h2>
-                {isLoading ? (
-                  <div className="flex justify-center py-12">
-                    <div className="flex flex-col items-center">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-                      <p className="text-gray-600">Searching for flights...</p>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {availableFlights.length > 0 ? (
-                      <div className="space-y-6">
-                        {availableFlights.map((flight) => (
-                          <div key={flight.id} className="relative">
-                            <FlightCard flight={flight} />
-                            <div className="mt-4 flex justify-end">
-                              <Button onClick={() => handleFlightSelect(flight)}>
-                                Select Flight
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <Card className="bg-muted/40">
-                        <CardContent className="flex flex-col items-center justify-center py-12">
-                          <Plane className="h-12 w-12 text-gray-400 mb-4" />
-                          <h3 className="text-lg font-medium text-gray-700 mb-2">No flights available</h3>
-                          <p className="text-gray-500 mb-4 text-center">
-                            We couldn't find any available flights matching your search criteria.
-                          </p>
-                          <Button variant="outline" onClick={() => setSearchParams(null)}>
-                            Try a different search
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    )}
-                  </>
-                )}
-              </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Step 2: Passenger Information */}
-      {activeStep === 1 && selectedFlight && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Passenger Information</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmitPassengerInfo}>
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div>
-                        <Label htmlFor="title">Title</Label>
-                        <Select value={title} onValueChange={setTitle}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Title" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Mr">Mr</SelectItem>
-                            <SelectItem value="Mrs">Mrs</SelectItem>
-                            <SelectItem value="Ms">Ms</SelectItem>
-                            <SelectItem value="Dr">Dr</SelectItem>
-                            <SelectItem value="Other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
+        </TabsContent>
+        
+        {/* Payment Tab */}
+        <TabsContent value="payment">
+          {selectedFlight && (
+            <div className="space-y-6">
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle>Booking Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-4">
+                      <div className="bg-primary/10 p-3 rounded-full">
+                        <Plane className="h-5 w-5 text-primary" />
                       </div>
-                      <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <h3 className="font-medium">
+                          {selectedFlight.departureAirport.city} to {selectedFlight.arrivalAirport.city}
+                        </h3>
+                        <p className="text-sm text-gray-500">
+                          Flight {selectedFlight.flightNumber}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                      <div className="flex items-center space-x-3">
+                        <CalendarDays className="h-5 w-5 text-gray-400" />
                         <div>
-                          <Label htmlFor="firstName">First Name*</Label>
-                          <Input 
-                            id="firstName" 
-                            value={firstName} 
-                            onChange={(e) => setFirstName(e.target.value)} 
-                            required 
-                          />
+                          <p className="text-sm text-gray-500">Date</p>
+                          <p className="font-medium">
+                            {format(new Date(selectedFlight.date), "MMM d, yyyy")}
+                          </p>
                         </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-3">
+                        <Clock className="h-5 w-5 text-gray-400" />
                         <div>
-                          <Label htmlFor="lastName">Last Name*</Label>
-                          <Input 
-                            id="lastName" 
-                            value={lastName} 
-                            onChange={(e) => setLastName(e.target.value)} 
-                            required 
-                          />
+                          <p className="text-sm text-gray-500">Departure</p>
+                          <p className="font-medium">
+                            {selectedFlight.departureTime}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-3">
+                        <MapPin className="h-5 w-5 text-gray-400" />
+                        <div>
+                          <p className="text-sm text-gray-500">Seat</p>
+                          <p className="font-medium">{seatSelection}</p>
                         </div>
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <Label htmlFor="email">Email*</Label>
-                        <Input 
-                          id="email" 
-                          type="email" 
-                          value={email} 
-                          onChange={(e) => setEmail(e.target.value)} 
-                          required 
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="phone">Phone Number*</Label>
-                        <Input 
-                          id="phone" 
-                          value={phone} 
-                          onChange={(e) => setPhone(e.target.value)} 
-                          required 
-                        />
+                    
+                    <div className="border-t pt-4 mt-4">
+                      <div className="flex items-center space-x-3">
+                        <User className="h-5 w-5 text-gray-400" />
+                        <div>
+                          <p className="text-sm text-gray-500">Passenger</p>
+                          <p className="font-medium">{passenger.name}</p>
+                        </div>
                       </div>
                     </div>
-
-                    <div>
-                      <Label htmlFor="address">Address</Label>
+                    
+                    <div className="bg-muted/30 p-4 rounded-md mt-4">
+                      <div className="flex justify-between">
+                        <span>Base fare</span>
+                        <span>${selectedFlight.price}</span>
+                      </div>
+                      <div className="flex justify-between text-sm text-gray-500 mt-2">
+                        <span>Taxes and fees</span>
+                        <span>$25</span>
+                      </div>
+                      <div className="flex justify-between font-bold text-lg mt-4 pt-4 border-t">
+                        <span>Total amount</span>
+                        <span>${selectedFlight.price + 25}</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader>
+                  <CardTitle>Payment Information</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <RadioGroup defaultValue="credit-card" className="space-y-3">
+                    <div className="flex items-center space-x-3 bg-muted/30 p-3 rounded-md cursor-pointer">
+                      <RadioGroupItem value="credit-card" id="credit-card" />
+                      <Label htmlFor="credit-card" className="cursor-pointer flex-1">
+                        <div className="flex items-center">
+                          <CreditCard className="h-5 w-5 mr-2" />
+                          <span>Credit/Debit Card</span>
+                        </div>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                  
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="card-number">Card Number</Label>
                       <Input 
-                        id="address" 
-                        value={address} 
-                        onChange={(e) => setAddress(e.target.value)} 
+                        id="card-number" 
+                        value={paymentDetails.cardNumber} 
+                        onChange={(e) => setPaymentDetails({...paymentDetails, cardNumber: e.target.value})}
+                        placeholder="1234 5678 9012 3456"
                       />
                     </div>
-
-                    <div>
-                      <Label htmlFor="seat">Seat Preference</Label>
-                      <Select value={seatSelection} onValueChange={setSeatSelection}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select seat preference" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="window">Window</SelectItem>
-                          <SelectItem value="aisle">Aisle</SelectItem>
-                          <SelectItem value="middle">Middle</SelectItem>
-                          <SelectItem value="no-preference">No Preference</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="card-name">Name on Card</Label>
+                      <Input 
+                        id="card-name" 
+                        value={paymentDetails.cardName} 
+                        onChange={(e) => setPaymentDetails({...paymentDetails, cardName: e.target.value})}
+                        placeholder="John Doe"
+                      />
                     </div>
-
-                    <div className="flex justify-between">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        onClick={() => setActiveStep(0)}
-                      >
-                        Back
-                      </Button>
-                      <Button type="submit">
-                        Continue to Payment
-                      </Button>
-                    </div>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div>
-            <Card className="sticky top-20">
-              <CardHeader>
-                <CardTitle>Flight Summary</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Flight</div>
-                    <div className="font-medium">{selectedFlight.flightNumber}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Date</div>
-                    <div className="font-medium">{format(new Date(selectedFlight.date), "EEE, MMM d, yyyy")}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Route</div>
-                    <div className="font-medium">{selectedFlight.departureAirport.code} to {selectedFlight.arrivalAirport.code}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Departure</div>
-                    <div className="font-medium">{selectedFlight.departureTime}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Arrival</div>
-                    <div className="font-medium">{selectedFlight.arrivalTime}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Duration</div>
-                    <div className="font-medium">{selectedFlight.duration}</div>
-                  </div>
-
-                  <div className="border-t pt-4 mt-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-gray-500">Base fare</div>
-                      <div className="font-medium">${selectedFlight.price}</div>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-gray-500">Taxes & fees</div>
-                      <div className="font-medium">${Math.round(selectedFlight.price * 0.18)}</div>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-gray-500">Passengers</div>
-                      <div className="font-medium">x {passengerCount}</div>
-                    </div>
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                      <div className="font-bold">Total</div>
-                      <div className="font-bold text-xl text-primary">
-                        ${(selectedFlight.price + Math.round(selectedFlight.price * 0.18)) * passengerCount}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Payment */}
-      {activeStep === 2 && selectedFlight && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Payment Information</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmitPayment}>
-                  <div className="space-y-6">
-                    <div>
-                      <Label className="mb-2 block">Payment Method</Label>
-                      <RadioGroup 
-                        value={paymentMethod} 
-                        onValueChange={setPaymentMethod}
-                        className="flex flex-col space-y-2"
-                      >
-                        <div className="flex items-center space-x-2 rounded-md border p-3">
-                          <RadioGroupItem value="credit-card" id="credit-card" />
-                          <Label htmlFor="credit-card" className="flex items-center">
-                            <CreditCard className="h-5 w-5 mr-2 text-primary" />
-                            Credit/Debit Card
-                          </Label>
-                        </div>
-                        <div className="flex items-center space-x-2 rounded-md border p-3">
-                          <RadioGroupItem value="paypal" id="paypal" />
-                          <Label htmlFor="paypal">
-                            <div className="flex items-center">
-                              <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M19.5 8.75H16.75M16.75 8.75V6M16.75 8.75H14M12.5 6H4.5L6.5 15H14.5L16.5 6" stroke="#0070ba" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                              PayPal
-                            </div>
-                          </Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-
-                    {paymentMethod === "credit-card" && (
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="cardNumber">Card Number</Label>
-                          <Input 
-                            id="cardNumber" 
-                            placeholder="0000 0000 0000 0000" 
-                            value={cardNumber} 
-                            onChange={(e) => setCardNumber(e.target.value.replace(/\D/g, "").slice(0, 16))} 
-                            required 
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="cardName">Cardholder Name</Label>
-                          <Input 
-                            id="cardName" 
-                            placeholder="Name on Card" 
-                            value={cardName} 
-                            onChange={(e) => setCardName(e.target.value)} 
-                            required 
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="expiryDate">Expiry Date</Label>
-                            <Input 
-                              id="expiryDate" 
-                              placeholder="MM/YY" 
-                              value={expiryDate} 
-                              onChange={(e) => setExpiryDate(e.target.value)} 
-                              required 
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="cvv">CVV</Label>
-                            <Input 
-                              id="cvv" 
-                              placeholder="123" 
-                              value={cvv} 
-                              onChange={(e) => setCvv(e.target.value.replace(/\D/g, "").slice(0, 3))} 
-                              required 
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {paymentMethod === "paypal" && (
-                      <div className="rounded-md bg-blue-50 p-4 text-center">
-                        <p className="text-sm text-blue-800 mb-4">
-                          You'll be redirected to PayPal to complete your payment securely.
-                        </p>
-                        <img 
-                          src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_111x69.jpg" 
-                          alt="PayPal" 
-                          className="h-12 mx-auto" 
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="expiry-date">Expiry Date</Label>
+                        <Input 
+                          id="expiry-date" 
+                          value={paymentDetails.expiryDate} 
+                          onChange={(e) => setPaymentDetails({...paymentDetails, expiryDate: e.target.value})}
+                          placeholder="MM/YY"
                         />
                       </div>
-                    )}
-
-                    <div className="rounded-md bg-green-50 p-4 flex items-start space-x-3">
-                      <ShieldCheck className="h-5 w-5 text-green-600 mt-0.5" />
-                      <div>
-                        <p className="text-sm text-green-800 font-medium">Secure payment</p>
-                        <p className="text-xs text-green-700 mt-1">
-                          Your payment information is encrypted and secure. We do not store credit card details.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        onClick={() => setActiveStep(1)}
-                      >
-                        Back
-                      </Button>
-                      <Button 
-                        type="submit" 
-                        disabled={isLoading}
-                        className="min-w-[150px]"
-                      >
-                        {isLoading ? (
-                          <div className="flex items-center">
-                            <Loader2 className="animate-spin mr-2 h-4 w-4" />
-                            Processing...
-                          </div>
-                        ) : (
-                          <div className="flex items-center">
-                            Complete Booking 
-                            <ChevronsRight className="ml-2 h-4 w-4" />
-                          </div>
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div>
-            <Card className="sticky top-20">
-              <CardHeader>
-                <CardTitle>Booking Summary</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Passenger</div>
-                    <div className="font-medium">{title} {firstName} {lastName}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Flight</div>
-                    <div className="font-medium">{selectedFlight.flightNumber}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Date</div>
-                    <div className="font-medium">{format(new Date(selectedFlight.date), "EEE, MMM d, yyyy")}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Route</div>
-                    <div className="font-medium">{selectedFlight.departureAirport.code} to {selectedFlight.arrivalAirport.code}</div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">Passengers</div>
-                    <div className="font-medium">{passengerCount}</div>
-                  </div>
-
-                  <div className="border-t pt-4 mt-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-gray-500">Base fare</div>
-                      <div className="font-medium">${selectedFlight.price}</div>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-gray-500">Taxes & fees</div>
-                      <div className="font-medium">${Math.round(selectedFlight.price * 0.18)}</div>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-gray-500">Passengers</div>
-                      <div className="font-medium">x {passengerCount}</div>
-                    </div>
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                      <div className="font-bold">Total</div>
-                      <div className="font-bold text-xl text-primary">
-                        ${(selectedFlight.price + Math.round(selectedFlight.price * 0.18)) * passengerCount}
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="cvv">CVV</Label>
+                        <Input 
+                          id="cvv" 
+                          value={paymentDetails.cvv} 
+                          onChange={(e) => setPaymentDetails({...paymentDetails, cvv: e.target.value})}
+                          placeholder="123"
+                          type="password"
+                          maxLength={4}
+                        />
                       </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Confirmation */}
-      {activeStep === 3 && selectedFlight && (
-        <div className="max-w-2xl mx-auto">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex flex-col items-center text-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                  <Check className="h-8 w-8 text-green-600" />
-                </div>
-                <h2 className="text-2xl font-bold mb-2">Booking Confirmed!</h2>
-                <p className="text-gray-600 mb-6">
-                  Your flight has been successfully booked. A confirmation email has been sent to {email}.
-                </p>
-
-                <div className="w-full p-4 rounded-lg bg-gray-50 mb-6">
-                  <div className="grid grid-cols-2 gap-4 text-left">
-                    <div>
-                      <p className="text-sm text-gray-500">Booking Reference</p>
-                      <p className="font-medium">BK{Math.floor(Math.random() * 1000000)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Flight</p>
-                      <p className="font-medium">{selectedFlight.flightNumber}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Passenger</p>
-                      <p className="font-medium">{title} {firstName} {lastName}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Date</p>
-                      <p className="font-medium">{format(new Date(selectedFlight.date), "EEE, MMM d, yyyy")}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">From</p>
-                      <p className="font-medium">{selectedFlight.departureAirport.city} ({selectedFlight.departureAirport.code})</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">To</p>
-                      <p className="font-medium">{selectedFlight.arrivalAirport.city} ({selectedFlight.arrivalAirport.code})</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Departure</p>
-                      <p className="font-medium">{selectedFlight.departureTime}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Arrival</p>
-                      <p className="font-medium">{selectedFlight.arrivalTime}</p>
-                    </div>
+                  
+                  <div className="pt-4 flex justify-between">
+                    <Button variant="outline" onClick={() => setCurrentTab("passenger")}>
+                      Back
+                    </Button>
+                    <Button 
+                      onClick={handleBooking}
+                      disabled={
+                        loading || 
+                        !paymentDetails.cardNumber || 
+                        !paymentDetails.cardName || 
+                        !paymentDetails.expiryDate || 
+                        !paymentDetails.cvv
+                      }
+                    >
+                      {loading ? (
+                        <span className="flex items-center">
+                          <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
+                          Processing...
+                        </span>
+                      ) : (
+                        "Confirm Booking"
+                      )}
+                    </Button>
                   </div>
-                </div>
-
-                <div className="flex flex-col md:flex-row gap-4 w-full">
-                  <Button className="w-full" onClick={() => navigate("/my-bookings")}>
-                    View My Bookings
-                  </Button>
-                  <Button variant="outline" className="w-full" onClick={() => window.print()}>
-                    Print Confirmation
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import mockData from "@/services/mockData";
+import dbService from "@/services/dbService";
 import { 
   Plane, 
   CalendarDays, 
@@ -26,7 +26,8 @@ import {
   FileText, 
   AlertTriangle,
   Download,
-  Printer
+  Printer,
+  CheckCircle
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -50,12 +51,26 @@ const MyBookings = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   useEffect(() => {
-    // Get user's bookings
-    const userBookings = mockData.bookings.filter(
-      booking => booking.passengerEmail === user?.email
-    );
+    if (!user) return;
     
-    setBookings(userBookings);
+    setIsLoading(true);
+    
+    // Get user's bookings
+    dbService.getBookingsByUser(user.email)
+      .then(userBookings => {
+        setBookings(userBookings);
+      })
+      .catch(error => {
+        console.error("Error fetching bookings:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load your bookings. Please try again.",
+          variant: "destructive"
+        });
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, [user]);
 
   const upcomingBookings = bookings.filter(booking => {
@@ -73,23 +88,34 @@ const MyBookings = () => {
   const handleCancelBooking = (bookingId: string) => {
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      const updatedBookings = bookings.map(booking => {
-        if (booking.id === bookingId) {
-          return { ...booking, status: "cancelled" };
-        }
-        return booking;
+    dbService.updateBooking(bookingId, { status: "cancelled" })
+      .then(() => {
+        // Update the local bookings state to reflect the change
+        const updatedBookings = bookings.map(booking => {
+          if (booking.id === bookingId) {
+            return { ...booking, status: "cancelled" };
+          }
+          return booking;
+        });
+        
+        setBookings(updatedBookings);
+        
+        toast({
+          title: "Booking Cancelled",
+          description: "Your booking has been successfully cancelled.",
+        });
+      })
+      .catch(error => {
+        console.error("Error cancelling booking:", error);
+        toast({
+          title: "Error",
+          description: "Failed to cancel your booking. Please try again.",
+          variant: "destructive"
+        });
+      })
+      .finally(() => {
+        setIsLoading(false);
       });
-      
-      setBookings(updatedBookings);
-      setIsLoading(false);
-      
-      toast({
-        title: "Booking Cancelled",
-        description: "Your booking has been successfully cancelled.",
-      });
-    }, 1500);
   };
 
   const getStatusBadge = (status: string) => {
@@ -159,7 +185,11 @@ const MyBookings = () => {
         </TabsList>
 
         <TabsContent value={currentTab}>
-          {getBookingsForTab().length > 0 ? (
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+            </div>
+          ) : getBookingsForTab().length > 0 ? (
             <div className="space-y-6">
               {getBookingsForTab().map((booking) => (
                 <Card key={booking.id} className="overflow-hidden">
@@ -450,22 +480,5 @@ const MyBookings = () => {
     </div>
   );
 };
-
-// Define CheckCircle component since it's used in the code but not imported
-const CheckCircle = ({ className }: { className?: string }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className}
-  >
-    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-    <polyline points="22 4 12 14.01 9 11.01"></polyline>
-  </svg>
-);
 
 export default MyBookings;

@@ -3,826 +3,824 @@ import { useState, useEffect } from "react";
 import { 
   Card, 
   CardContent, 
+  CardDescription, 
   CardHeader, 
-  CardTitle,
-  CardDescription 
+  CardTitle 
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Dialog, 
   DialogContent, 
   DialogDescription, 
-  DialogFooter, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger,
-  DialogClose
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Calendar } from "@/components/ui/calendar";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "@/components/ui/use-toast";
 import { 
   Plane, 
   Search, 
-  PlusCircle, 
-  RefreshCw, 
-  Calendar as CalendarIcon, 
+  Plus, 
   Edit, 
-  Trash2, 
-  CheckCircle2,
-  XCircle, 
-  Clock
+  Trash, 
+  Clock, 
+  Calendar, 
+  ArrowRight,
+  CheckCircle,
+  AlertCircle
 } from "lucide-react";
 import { format } from "date-fns";
-import mockData from "@/services/mockData";
 import { FlightType } from "@/components/flights/FlightCard";
-import { cn } from "@/lib/utils";
-
-const airports = [
-  { code: "JFK", city: "New York" },
-  { code: "LAX", city: "Los Angeles" },
-  { code: "ORD", city: "Chicago" },
-  { code: "ATL", city: "Atlanta" },
-  { code: "SFO", city: "San Francisco" },
-  { code: "LHR", city: "London" },
-  { code: "CDG", city: "Paris" },
-  { code: "DXB", city: "Dubai" },
-  { code: "SIN", city: "Singapore" },
-  { code: "HND", city: "Tokyo" }
-];
-
-const aircrafts = [
-  "Boeing 737-800",
-  "Airbus A320",
-  "Boeing 787-9 Dreamliner",
-  "Airbus A350-900",
-  "Boeing 777-300ER"
-];
-
-const flightStatuses = ["scheduled", "on-time", "delayed", "cancelled", "completed"];
+import dbService from "@/services/dbService";
 
 const AdminFlights = () => {
   const [flights, setFlights] = useState<FlightType[]>([]);
-  const [currentTab, setCurrentTab] = useState("all");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [filteredFlights, setFilteredFlights] = useState<FlightType[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [loading, setLoading] = useState(false);
   
-  // Add/edit flight state
-  const [showFlightDialog, setShowFlightDialog] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [flightToEdit, setFlightToEdit] = useState<FlightType | null>(null);
-  
-  // Form state for new/edit flight
-  const [formFlightNumber, setFormFlightNumber] = useState("");
-  const [formDepartureAirport, setFormDepartureAirport] = useState("");
-  const [formArrivalAirport, setFormArrivalAirport] = useState("");
-  const [formDepartureTime, setFormDepartureTime] = useState("");
-  const [formArrivalTime, setFormArrivalTime] = useState("");
-  const [formDate, setFormDate] = useState<Date | undefined>(new Date());
-  const [formDuration, setFormDuration] = useState("");
-  const [formPrice, setFormPrice] = useState("");
-  const [formSeatsAvailable, setFormSeatsAvailable] = useState("");
-  const [formAircraft, setFormAircraft] = useState("");
-  const [formStatus, setFormStatus] = useState("scheduled");
-  const [formAmenities, setFormAmenities] = useState<string[]>([]);
-
-  // Fetch flights on component mount
-  useEffect(() => {
-    setFlights(mockData.flights);
-  }, []);
-
-  // Filter flights based on search and filters
-  const filteredFlights = flights.filter(flight => {
-    // First check current tab
-    if (currentTab !== "all" && flight.status !== currentTab) {
-      return false;
-    }
-    
-    // Then check search term
-    if (searchTerm && 
-      !flight.flightNumber.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !flight.departureAirport.code.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      !flight.arrivalAirport.code.toLowerCase().includes(searchTerm.toLowerCase())
-    ) {
-      return false;
-    }
-    
-    // Then check date filter
-    if (dateFilter) {
-      const filterDate = new Date(dateFilter);
-      filterDate.setHours(0, 0, 0, 0);
-      
-      const flightDate = new Date(flight.date);
-      flightDate.setHours(0, 0, 0, 0);
-      
-      if (filterDate.getTime() !== flightDate.getTime()) {
-        return false;
-      }
-    }
-    
-    // Finally check status filter
-    if (statusFilter && flight.status !== statusFilter) {
-      return false;
-    }
-    
-    return true;
+  const [newFlight, setNewFlight] = useState({
+    flightNumber: "",
+    departureAirportCode: "",
+    departureAirportCity: "",
+    arrivalAirportCode: "",
+    arrivalAirportCity: "",
+    departureTime: "",
+    arrivalTime: "",
+    date: "",
+    price: "",
+    seatsAvailable: "",
+    aircraft: "",
+    status: "scheduled"
   });
-
-  const resetFilters = () => {
-    setSearchTerm("");
-    setDateFilter(undefined);
-    setStatusFilter("");
+  
+  const [editingFlight, setEditingFlight] = useState<FlightType | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isNewDialogOpen, setIsNewDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [flightToDelete, setFlightToDelete] = useState<string | null>(null);
+  
+  useEffect(() => {
+    loadFlights();
+  }, []);
+  
+  useEffect(() => {
+    filterFlights();
+  }, [searchQuery, statusFilter, flights]);
+  
+  const loadFlights = () => {
+    setLoading(true);
+    dbService.getFlights()
+      .then(data => {
+        setFlights(data);
+        setFilteredFlights(data);
+      })
+      .catch(error => {
+        console.error("Error loading flights:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load flights. Please try again.",
+          variant: "destructive"
+        });
+      })
+      .finally(() => setLoading(false));
   };
-
+  
+  const filterFlights = () => {
+    let filtered = [...flights];
+    
+    // Apply status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(flight => flight.status === statusFilter);
+    }
+    
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(flight => 
+        flight.flightNumber.toLowerCase().includes(query) ||
+        flight.departureAirport.code.toLowerCase().includes(query) ||
+        flight.departureAirport.city.toLowerCase().includes(query) ||
+        flight.arrivalAirport.code.toLowerCase().includes(query) ||
+        flight.arrivalAirport.city.toLowerCase().includes(query)
+      );
+    }
+    
+    setFilteredFlights(filtered);
+  };
+  
   const handleAddFlight = () => {
-    setIsEditing(false);
-    setFlightToEdit(null);
+    setLoading(true);
     
-    // Reset form
-    setFormFlightNumber("");
-    setFormDepartureAirport("");
-    setFormArrivalAirport("");
-    setFormDepartureTime("");
-    setFormArrivalTime("");
-    setFormDate(new Date());
-    setFormDuration("");
-    setFormPrice("");
-    setFormSeatsAvailable("");
-    setFormAircraft("");
-    setFormStatus("scheduled");
-    setFormAmenities([]);
+    const flightData = {
+      flightNumber: newFlight.flightNumber,
+      departureAirport: {
+        code: newFlight.departureAirportCode,
+        city: newFlight.departureAirportCity
+      },
+      arrivalAirport: {
+        code: newFlight.arrivalAirportCode,
+        city: newFlight.arrivalAirportCity
+      },
+      departureTime: newFlight.departureTime,
+      arrivalTime: newFlight.arrivalTime,
+      date: new Date(newFlight.date),
+      duration: calculateDuration(newFlight.departureTime, newFlight.arrivalTime),
+      price: parseFloat(newFlight.price),
+      seatsAvailable: parseInt(newFlight.seatsAvailable),
+      aircraft: newFlight.aircraft,
+      status: newFlight.status,
+      amenities: ["WiFi", "Entertainment", "Meals"]
+    };
     
-    setShowFlightDialog(true);
-  };
-
-  const handleEditFlight = (flight: FlightType) => {
-    setIsEditing(true);
-    setFlightToEdit(flight);
-    
-    // Set form values
-    setFormFlightNumber(flight.flightNumber);
-    setFormDepartureAirport(flight.departureAirport.code);
-    setFormArrivalAirport(flight.arrivalAirport.code);
-    setFormDepartureTime(flight.departureTime);
-    setFormArrivalTime(flight.arrivalTime);
-    setFormDate(new Date(flight.date));
-    setFormDuration(flight.duration);
-    setFormPrice(flight.price.toString());
-    setFormSeatsAvailable(flight.seatsAvailable.toString());
-    setFormAircraft(flight.aircraft);
-    setFormStatus(flight.status);
-    setFormAmenities(flight.amenities || []);
-    
-    setShowFlightDialog(true);
-  };
-
-  const handleDeleteFlight = (flight: FlightType) => {
-    if (window.confirm(`Are you sure you want to delete flight ${flight.flightNumber}?`)) {
-      // Simulate API call
-      setIsLoading(true);
-      
-      setTimeout(() => {
-        setFlights(flights.filter(f => f.id !== flight.id));
-        setIsLoading(false);
-        
+    dbService.createFlight(flightData)
+      .then(() => {
         toast({
-          title: "Flight deleted",
-          description: `Flight ${flight.flightNumber} has been successfully deleted.`,
+          title: "Success",
+          description: "Flight has been added successfully.",
         });
-      }, 500);
-    }
+        loadFlights();
+        resetNewFlightForm();
+        setIsNewDialogOpen(false);
+      })
+      .catch(error => {
+        console.error("Error adding flight:", error);
+        toast({
+          title: "Error",
+          description: "Failed to add flight. Please try again.",
+          variant: "destructive"
+        });
+      })
+      .finally(() => setLoading(false));
   };
-
-  const handleFlightStatusChange = (flight: FlightType, newStatus: string) => {
-    // Simulate API call
-    setIsLoading(true);
+  
+  const handleEditFlight = () => {
+    if (!editingFlight) return;
     
-    setTimeout(() => {
-      const updatedFlights = flights.map(f => {
-        if (f.id === flight.id) {
-          return { ...f, status: newStatus as any };
+    setLoading(true);
+    
+    dbService.updateFlight(editingFlight.id, editingFlight)
+      .then(() => {
+        toast({
+          title: "Success",
+          description: "Flight has been updated successfully.",
+        });
+        loadFlights();
+        setEditingFlight(null);
+        setIsEditDialogOpen(false);
+      })
+      .catch(error => {
+        console.error("Error updating flight:", error);
+        toast({
+          title: "Error",
+          description: "Failed to update flight. Please try again.",
+          variant: "destructive"
+        });
+      })
+      .finally(() => setLoading(false));
+  };
+  
+  const handleDeleteFlight = () => {
+    if (!flightToDelete) return;
+    
+    setLoading(true);
+    
+    dbService.deleteFlight(flightToDelete)
+      .then(success => {
+        if (success) {
+          toast({
+            title: "Success",
+            description: "Flight has been deleted successfully.",
+          });
+          loadFlights();
+        } else {
+          toast({
+            title: "Error",
+            description: "Failed to delete flight. It may not exist or is referenced by bookings.",
+            variant: "destructive"
+          });
         }
-        return f;
-      });
-      
-      setFlights(updatedFlights);
-      setIsLoading(false);
-      
-      toast({
-        title: "Status updated",
-        description: `Flight ${flight.flightNumber} status changed to ${newStatus}.`,
-      });
-    }, 500);
-  };
-
-  const handleSaveFlight = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validate form
-    if (
-      !formFlightNumber ||
-      !formDepartureAirport ||
-      !formArrivalAirport ||
-      !formDepartureTime ||
-      !formArrivalTime ||
-      !formDate ||
-      !formDuration ||
-      !formPrice ||
-      !formSeatsAvailable ||
-      !formAircraft
-    ) {
-      toast({
-        variant: "destructive",
-        title: "Missing information",
-        description: "Please fill in all required fields.",
-      });
-      return;
-    }
-    
-    if (formDepartureAirport === formArrivalAirport) {
-      toast({
-        variant: "destructive",
-        title: "Invalid route",
-        description: "Departure and arrival airports cannot be the same.",
-      });
-      return;
-    }
-    
-    // Simulate API call
-    setIsLoading(true);
-    
-    setTimeout(() => {
-      if (isEditing && flightToEdit) {
-        // Update existing flight
-        const updatedFlights = flights.map(f => {
-          if (f.id === flightToEdit.id) {
-            return {
-              ...f,
-              flightNumber: formFlightNumber,
-              departureAirport: {
-                code: formDepartureAirport,
-                city: airports.find(a => a.code === formDepartureAirport)?.city || ""
-              },
-              arrivalAirport: {
-                code: formArrivalAirport,
-                city: airports.find(a => a.code === formArrivalAirport)?.city || ""
-              },
-              departureTime: formDepartureTime,
-              arrivalTime: formArrivalTime,
-              date: formDate || new Date(),
-              duration: formDuration,
-              price: Number(formPrice),
-              seatsAvailable: Number(formSeatsAvailable),
-              aircraft: formAircraft,
-              status: formStatus as any,
-              amenities: formAmenities
-            };
-          }
-          return f;
-        });
-        
-        setFlights(updatedFlights);
+      })
+      .catch(error => {
+        console.error("Error deleting flight:", error);
         toast({
-          title: "Flight updated",
-          description: `Flight ${formFlightNumber} has been successfully updated.`,
+          title: "Error",
+          description: "Failed to delete flight. Please try again.",
+          variant: "destructive"
         });
-      } else {
-        // Add new flight
-        const newFlight: FlightType = {
-          id: `FL${Date.now()}`,
-          flightNumber: formFlightNumber,
-          departureAirport: {
-            code: formDepartureAirport,
-            city: airports.find(a => a.code === formDepartureAirport)?.city || ""
-          },
-          arrivalAirport: {
-            code: formArrivalAirport,
-            city: airports.find(a => a.code === formArrivalAirport)?.city || ""
-          },
-          departureTime: formDepartureTime,
-          arrivalTime: formArrivalTime,
-          date: formDate || new Date(),
-          duration: formDuration,
-          price: Number(formPrice),
-          seatsAvailable: Number(formSeatsAvailable),
-          aircraft: formAircraft,
-          status: formStatus as any,
-          amenities: formAmenities
-        };
-        
-        setFlights([newFlight, ...flights]);
-        toast({
-          title: "Flight added",
-          description: `Flight ${formFlightNumber} has been successfully added.`,
-        });
-      }
-      
-      setIsLoading(false);
-      setShowFlightDialog(false);
-    }, 1000);
+      })
+      .finally(() => {
+        setFlightToDelete(null);
+        setIsDeleteDialogOpen(false);
+        setLoading(false);
+      });
   };
-
-  const toggleAmenity = (amenity: string) => {
-    if (formAmenities.includes(amenity)) {
-      setFormAmenities(formAmenities.filter(a => a !== amenity));
-    } else {
-      setFormAmenities([...formAmenities, amenity]);
+  
+  const resetNewFlightForm = () => {
+    setNewFlight({
+      flightNumber: "",
+      departureAirportCode: "",
+      departureAirportCity: "",
+      arrivalAirportCode: "",
+      arrivalAirportCity: "",
+      departureTime: "",
+      arrivalTime: "",
+      date: "",
+      price: "",
+      seatsAvailable: "",
+      aircraft: "",
+      status: "scheduled"
+    });
+  };
+  
+  const calculateDuration = (departureTime: string, arrivalTime: string) => {
+    // This is a simplified duration calculation
+    const [departureHour, departureMinute] = departureTime.split(':').map(Number);
+    const [arrivalHour, arrivalMinute] = arrivalTime.split(':').map(Number);
+    
+    let hourDiff = arrivalHour - departureHour;
+    let minuteDiff = arrivalMinute - departureMinute;
+    
+    if (minuteDiff < 0) {
+      hourDiff--;
+      minuteDiff += 60;
     }
+    
+    if (hourDiff < 0) {
+      hourDiff += 24;
+    }
+    
+    return `${hourDiff}h ${minuteDiff}m`;
   };
-
-  const getStatusColor = (status: string) => {
+  
+  const getStatusBadge = (status: string) => {
     switch (status) {
       case "on-time":
-        return "bg-green-100 text-green-800 border-green-200";
+        return <Badge className="bg-green-100 text-green-800 border-green-200">On Time</Badge>;
       case "delayed":
-        return "bg-amber-100 text-amber-800 border-amber-200";
+        return <Badge className="bg-amber-100 text-amber-800 border-amber-200">Delayed</Badge>;
       case "cancelled":
-        return "bg-red-100 text-red-800 border-red-200";
+        return <Badge className="bg-red-100 text-red-800 border-red-200">Cancelled</Badge>;
       case "completed":
-        return "bg-blue-100 text-blue-800 border-blue-200";
+        return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Completed</Badge>;
       default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
+        return <Badge className="bg-gray-100 text-gray-800 border-gray-200">Scheduled</Badge>;
     }
   };
-
+  
   return (
     <div className="container mx-auto px-4 py-8 max-w-screen-xl">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold">Flight Management</h1>
-          <p className="text-gray-600">Add, edit, and manage all flights</p>
+          <p className="text-gray-600">Manage flight schedules, routes, and details</p>
         </div>
-        <div className="mt-4 md:mt-0">
-          <Button onClick={handleAddFlight}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Add New Flight
-          </Button>
-        </div>
-      </div>
-
-      {/* Filter Controls */}
-      <div className="mb-6">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
-                  <Input 
-                    placeholder="Search flights..." 
-                    className="pl-9"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-[240px]">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dateFilter ? format(dateFilter, "PPP") : "Filter by date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={dateFilter}
-                      onSelect={setDateFilter}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              
-              <div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">All Statuses</SelectItem>
-                    {flightStatuses.map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {status.charAt(0).toUpperCase() + status.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div>
-                <Button 
-                  variant="ghost" 
-                  onClick={resetFilters}
-                  disabled={!searchTerm && !dateFilter && !statusFilter}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Reset
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Tabs & Flight List */}
-      <Tabs 
-        value={currentTab} 
-        onValueChange={setCurrentTab}
-        className="space-y-6"
-      >
-        <TabsList>
-          <TabsTrigger value="all">All Flights</TabsTrigger>
-          <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
-          <TabsTrigger value="on-time">On Time</TabsTrigger>
-          <TabsTrigger value="delayed">Delayed</TabsTrigger>
-          <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value={currentTab}>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex justify-between items-center">
-                <span>
-                  {currentTab === "all" ? "All Flights" : 
-                    currentTab.charAt(0).toUpperCase() + currentTab.slice(1) + " Flights"
-                  }
-                </span>
-                <Badge variant="outline">{filteredFlights.length} flight(s)</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <div className="flex flex-col items-center">
-                    <RefreshCw className="h-8 w-8 animate-spin text-primary mb-4" />
-                    <p className="text-gray-600">Loading flights...</p>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {filteredFlights.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-left">
-                        <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                          <tr>
-                            <th className="px-6 py-3">Flight #</th>
-                            <th className="px-6 py-3">Route</th>
-                            <th className="px-6 py-3">Date</th>
-                            <th className="px-6 py-3">Time</th>
-                            <th className="px-6 py-3">Aircraft</th>
-                            <th className="px-6 py-3">Price</th>
-                            <th className="px-6 py-3">Seats</th>
-                            <th className="px-6 py-3">Status</th>
-                            <th className="px-6 py-3">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredFlights.map((flight) => (
-                            <tr key={flight.id} className="bg-white border-b hover:bg-gray-50">
-                              <td className="px-6 py-4 font-medium">
-                                <div className="flex items-center">
-                                  <Plane className="h-4 w-4 text-primary mr-2" />
-                                  {flight.flightNumber}
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                {flight.departureAirport.code} → {flight.arrivalAirport.code}
-                              </td>
-                              <td className="px-6 py-4">
-                                {format(new Date(flight.date), "dd MMM yyyy")}
-                              </td>
-                              <td className="px-6 py-4">
-                                {flight.departureTime} - {flight.arrivalTime}
-                              </td>
-                              <td className="px-6 py-4">
-                                {flight.aircraft}
-                              </td>
-                              <td className="px-6 py-4">
-                                ${flight.price}
-                              </td>
-                              <td className="px-6 py-4">
-                                {flight.seatsAvailable}
-                              </td>
-                              <td className="px-6 py-4">
-                                <Badge 
-                                  variant="outline" 
-                                  className={cn(getStatusColor(flight.status))}
-                                >
-                                  {flight.status.charAt(0).toUpperCase() + flight.status.slice(1)}
-                                </Badge>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="flex items-center space-x-2">
-                                  <Dialog>
-                                    <DialogTrigger asChild>
-                                      <Button variant="outline" size="icon" title="Change Status">
-                                        <Clock className="h-4 w-4" />
-                                      </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="sm:max-w-md">
-                                      <DialogHeader>
-                                        <DialogTitle>Change Flight Status</DialogTitle>
-                                        <DialogDescription>
-                                          Update the status for flight {flight.flightNumber}
-                                        </DialogDescription>
-                                      </DialogHeader>
-                                      <div className="grid gap-4 py-4">
-                                        {flightStatuses.map((status) => (
-                                          <div 
-                                            key={status}
-                                            className={cn(
-                                              "flex items-center p-3 rounded-md border cursor-pointer",
-                                              flight.status === status ? "border-primary bg-primary/5" : ""
-                                            )}
-                                            onClick={() => handleFlightStatusChange(flight, status)}
-                                          >
-                                            {status === "on-time" && <CheckCircle2 className="h-5 w-5 text-green-600 mr-2" />}
-                                            {status === "delayed" && <Clock className="h-5 w-5 text-amber-600 mr-2" />}
-                                            {status === "cancelled" && <XCircle className="h-5 w-5 text-red-600 mr-2" />}
-                                            {status === "scheduled" && <CalendarIcon className="h-5 w-5 text-blue-600 mr-2" />}
-                                            {status === "completed" && <CheckCircle2 className="h-5 w-5 text-gray-600 mr-2" />}
-                                            <span className="font-medium">
-                                              {status.charAt(0).toUpperCase() + status.slice(1)}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                      <DialogFooter>
-                                        <DialogClose asChild>
-                                          <Button type="button" variant="outline">
-                                            Cancel
-                                          </Button>
-                                        </DialogClose>
-                                      </DialogFooter>
-                                    </DialogContent>
-                                  </Dialog>
-                                  
-                                  <Button 
-                                    variant="outline" 
-                                    size="icon"
-                                    onClick={() => handleEditFlight(flight)}
-                                    title="Edit Flight"
-                                  >
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                  
-                                  <Button 
-                                    variant="outline" 
-                                    size="icon"
-                                    onClick={() => handleDeleteFlight(flight)}
-                                    title="Delete Flight"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-6">
-                      <p className="text-gray-500">No flights found matching your criteria.</p>
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Add/Edit Flight Dialog */}
-      <Dialog open={showFlightDialog} onOpenChange={setShowFlightDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{isEditing ? "Edit Flight" : "Add New Flight"}</DialogTitle>
-            <DialogDescription>
-              {isEditing 
-                ? `Update the information for flight ${flightToEdit?.flightNumber}` 
-                : "Fill in the details to add a new flight to the system"
-              }
-            </DialogDescription>
-          </DialogHeader>
-          
-          <form onSubmit={handleSaveFlight}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-4">
+        
+        <Dialog open={isNewDialogOpen} onOpenChange={setIsNewDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="mt-4 md:mt-0">
+              <Plus className="mr-2 h-4 w-4" />
+              Add New Flight
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Add New Flight</DialogTitle>
+              <DialogDescription>
+                Fill out the form below to add a new flight to the system.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="flightNumber">Flight Number*</Label>
+                <Label htmlFor="flight-number">Flight Number</Label>
                 <Input 
-                  id="flightNumber" 
-                  value={formFlightNumber} 
-                  onChange={(e) => setFormFlightNumber(e.target.value)} 
-                  placeholder="e.g. SK1234" 
-                  required 
+                  id="flight-number" 
+                  value={newFlight.flightNumber}
+                  onChange={(e) => setNewFlight({...newFlight, flightNumber: e.target.value})}
+                  placeholder="e.g. SW123"
                 />
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="aircraft">Aircraft*</Label>
-                <Select value={formAircraft} onValueChange={setFormAircraft} required>
-                  <SelectTrigger id="aircraft">
-                    <SelectValue placeholder="Select aircraft" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {aircrafts.map((aircraft) => (
-                      <SelectItem key={aircraft} value={aircraft}>
-                        {aircraft}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="aircraft">Aircraft</Label>
+                <Input 
+                  id="aircraft" 
+                  value={newFlight.aircraft}
+                  onChange={(e) => setNewFlight({...newFlight, aircraft: e.target.value})}
+                  placeholder="e.g. Boeing 737"
+                />
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="departureAirport">From*</Label>
-                <Select value={formDepartureAirport} onValueChange={setFormDepartureAirport} required>
-                  <SelectTrigger id="departureAirport">
-                    <SelectValue placeholder="Select departure airport" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {airports.map((airport) => (
-                      <SelectItem key={airport.code} value={airport.code}>
-                        {airport.city} ({airport.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="departure-code">Departure Airport Code</Label>
+                <Input 
+                  id="departure-code" 
+                  value={newFlight.departureAirportCode}
+                  onChange={(e) => setNewFlight({...newFlight, departureAirportCode: e.target.value})}
+                  placeholder="e.g. JFK"
+                />
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="arrivalAirport">To*</Label>
-                <Select value={formArrivalAirport} onValueChange={setFormArrivalAirport} required>
-                  <SelectTrigger id="arrivalAirport">
-                    <SelectValue placeholder="Select arrival airport" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {airports.map((airport) => (
-                      <SelectItem 
-                        key={airport.code} 
-                        value={airport.code}
-                        disabled={airport.code === formDepartureAirport}
-                      >
-                        {airport.city} ({airport.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="departure-city">Departure City</Label>
+                <Input 
+                  id="departure-city" 
+                  value={newFlight.departureAirportCity}
+                  onChange={(e) => setNewFlight({...newFlight, departureAirportCity: e.target.value})}
+                  placeholder="e.g. New York"
+                />
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="date">Date*</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-left font-normal"
-                      id="date"
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {formDate ? format(formDate, "PPP") : "Select date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={formDate}
-                      onSelect={setFormDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <Label htmlFor="arrival-code">Arrival Airport Code</Label>
+                <Input 
+                  id="arrival-code" 
+                  value={newFlight.arrivalAirportCode}
+                  onChange={(e) => setNewFlight({...newFlight, arrivalAirportCode: e.target.value})}
+                  placeholder="e.g. LAX"
+                />
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="status">Status*</Label>
-                <Select value={formStatus} onValueChange={setFormStatus} required>
+                <Label htmlFor="arrival-city">Arrival City</Label>
+                <Input 
+                  id="arrival-city" 
+                  value={newFlight.arrivalAirportCity}
+                  onChange={(e) => setNewFlight({...newFlight, arrivalAirportCity: e.target.value})}
+                  placeholder="e.g. Los Angeles"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="departure-time">Departure Time</Label>
+                <Input 
+                  id="departure-time" 
+                  type="time"
+                  value={newFlight.departureTime}
+                  onChange={(e) => setNewFlight({...newFlight, departureTime: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="arrival-time">Arrival Time</Label>
+                <Input 
+                  id="arrival-time" 
+                  type="time"
+                  value={newFlight.arrivalTime}
+                  onChange={(e) => setNewFlight({...newFlight, arrivalTime: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="date">Date</Label>
+                <Input 
+                  id="date" 
+                  type="date"
+                  value={newFlight.date}
+                  onChange={(e) => setNewFlight({...newFlight, date: e.target.value})}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={newFlight.status}
+                  onValueChange={(value) => setNewFlight({...newFlight, status: value})}
+                >
                   <SelectTrigger id="status">
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
-                    {flightStatuses.map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {status.charAt(0).toUpperCase() + status.slice(1)}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
+                    <SelectItem value="on-time">On Time</SelectItem>
+                    <SelectItem value="delayed">Delayed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="departureTime">Departure Time*</Label>
-                <Input 
-                  id="departureTime" 
-                  value={formDepartureTime} 
-                  onChange={(e) => setFormDepartureTime(e.target.value)} 
-                  placeholder="e.g. 09:30" 
-                  required 
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="arrivalTime">Arrival Time*</Label>
-                <Input 
-                  id="arrivalTime" 
-                  value={formArrivalTime} 
-                  onChange={(e) => setFormArrivalTime(e.target.value)} 
-                  placeholder="e.g. 11:45" 
-                  required 
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="duration">Duration*</Label>
-                <Input 
-                  id="duration" 
-                  value={formDuration} 
-                  onChange={(e) => setFormDuration(e.target.value)} 
-                  placeholder="e.g. 2h 15m" 
-                  required 
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="price">Price (USD)*</Label>
+                <Label htmlFor="price">Price ($)</Label>
                 <Input 
                   id="price" 
-                  type="number" 
-                  value={formPrice} 
-                  onChange={(e) => setFormPrice(e.target.value)} 
-                  placeholder="e.g. 299" 
-                  required 
+                  type="number"
+                  value={newFlight.price}
+                  onChange={(e) => setNewFlight({...newFlight, price: e.target.value})}
+                  placeholder="e.g. 299.99"
                 />
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="seatsAvailable">Available Seats*</Label>
+                <Label htmlFor="seats">Available Seats</Label>
                 <Input 
-                  id="seatsAvailable" 
-                  type="number" 
-                  value={formSeatsAvailable} 
-                  onChange={(e) => setFormSeatsAvailable(e.target.value)} 
-                  placeholder="e.g. 120" 
-                  required 
+                  id="seats" 
+                  type="number"
+                  value={newFlight.seatsAvailable}
+                  onChange={(e) => setNewFlight({...newFlight, seatsAvailable: e.target.value})}
+                  placeholder="e.g. 120"
                 />
-              </div>
-              
-              <div className="space-y-2 md:col-span-2">
-                <Label>Amenities</Label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
-                  {["WiFi", "Meals", "Entertainment", "USB Power", "Music"].map((amenity) => (
-                    <div 
-                      key={amenity} 
-                      className="flex items-center space-x-2"
-                    >
-                      <Checkbox 
-                        id={`amenity-${amenity}`} 
-                        checked={formAmenities.includes(amenity)}
-                        onCheckedChange={() => toggleAmenity(amenity)}
-                      />
-                      <Label htmlFor={`amenity-${amenity}`} className="cursor-pointer">
-                        {amenity}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
             
             <DialogFooter>
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={() => setShowFlightDialog(false)}
-              >
+              <Button variant="outline" onClick={() => setIsNewDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? (
-                  <div className="flex items-center">
-                    <RefreshCw className="animate-spin mr-2 h-4 w-4" />
-                    {isEditing ? "Updating..." : "Adding..."}
-                  </div>
+              <Button onClick={handleAddFlight} disabled={loading}>
+                {loading ? (
+                  <span className="flex items-center">
+                    <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
+                    Saving...
+                  </span>
                 ) : (
-                  <>{isEditing ? "Update Flight" : "Add Flight"}</>
+                  "Add Flight"
                 )}
               </Button>
             </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      </div>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Flight List</CardTitle>
+          <CardDescription>
+            View and manage all flights in the system
+          </CardDescription>
+          
+          <div className="flex flex-col md:flex-row gap-4 mt-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <Input
+                placeholder="Search by flight number, airport or city..."
+                className="pl-10"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full md:w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Flights</SelectItem>
+                <SelectItem value="scheduled">Scheduled</SelectItem>
+                <SelectItem value="on-time">On Time</SelectItem>
+                <SelectItem value="delayed">Delayed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        
+        <CardContent>
+          {loading && filteredFlights.length === 0 ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+            </div>
+          ) : filteredFlights.length > 0 ? (
+            <ScrollArea className="h-[calc(100vh-380px)] w-full rounded-md border">
+              <div className="w-full">
+                <div className="hidden md:grid grid-cols-7 gap-4 p-4 bg-muted/50 text-sm font-medium">
+                  <div>Flight</div>
+                  <div>Route</div>
+                  <div>Date</div>
+                  <div>Time</div>
+                  <div>Seats/Price</div>
+                  <div>Status</div>
+                  <div>Actions</div>
+                </div>
+                
+                <div className="divide-y">
+                  {filteredFlights.map((flight) => (
+                    <div key={flight.id} className="grid grid-cols-1 md:grid-cols-7 gap-4 p-4 hover:bg-muted/20 transition-colors">
+                      <div className="flex items-center">
+                        <div className="bg-primary/10 p-2 rounded-full mr-3 hidden md:flex">
+                          <Plane className="h-4 w-4 text-primary" />
+                        </div>
+                        <div>
+                          <div className="font-medium">{flight.flightNumber}</div>
+                          <div className="text-sm text-gray-500">{flight.aircraft}</div>
+                        </div>
+                      </div>
+                      
+                      <div className="md:flex flex-col justify-center">
+                        <div className="flex items-center">
+                          <span className="font-medium">{flight.departureAirport.code}</span>
+                          <ArrowRight className="h-3 w-3 mx-1 text-gray-400" />
+                          <span className="font-medium">{flight.arrivalAirport.code}</span>
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {flight.departureAirport.city} to {flight.arrivalAirport.city}
+                        </div>
+                      </div>
+                      
+                      <div className="md:flex items-center">
+                        <Calendar className="h-4 w-4 text-gray-400 mr-2 hidden md:inline" />
+                        <span>{format(new Date(flight.date), "MMM d, yyyy")}</span>
+                      </div>
+                      
+                      <div className="md:flex items-center">
+                        <Clock className="h-4 w-4 text-gray-400 mr-2 hidden md:inline" />
+                        <div>
+                          <div>
+                            {flight.departureTime} - {flight.arrivalTime}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {flight.duration}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="md:flex flex-col justify-center">
+                        <div className="font-medium">${flight.price}</div>
+                        <div className="text-sm text-gray-500">
+                          {flight.seatsAvailable} seat{flight.seatsAvailable !== 1 && 's'} left
+                        </div>
+                      </div>
+                      
+                      <div className="md:flex items-center">
+                        {getStatusBadge(flight.status)}
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <Dialog open={isEditDialogOpen && editingFlight?.id === flight.id} onOpenChange={(open) => {
+                          setIsEditDialogOpen(open);
+                          if (!open) setEditingFlight(null);
+                        }}>
+                          <DialogTrigger asChild>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => setEditingFlight(flight)}
+                            >
+                              <Edit className="h-4 w-4" />
+                              <span className="sr-only md:not-sr-only md:ml-2">Edit</span>
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-2xl">
+                            {editingFlight && (
+                              <>
+                                <DialogHeader>
+                                  <DialogTitle>Edit Flight</DialogTitle>
+                                  <DialogDescription>
+                                    Update flight details for {editingFlight.flightNumber}
+                                  </DialogDescription>
+                                </DialogHeader>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-flight-number">Flight Number</Label>
+                                    <Input 
+                                      id="edit-flight-number" 
+                                      value={editingFlight.flightNumber}
+                                      onChange={(e) => setEditingFlight({
+                                        ...editingFlight, 
+                                        flightNumber: e.target.value
+                                      })}
+                                    />
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-aircraft">Aircraft</Label>
+                                    <Input 
+                                      id="edit-aircraft" 
+                                      value={editingFlight.aircraft}
+                                      onChange={(e) => setEditingFlight({
+                                        ...editingFlight, 
+                                        aircraft: e.target.value
+                                      })}
+                                    />
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-departure-time">Departure Time</Label>
+                                    <Input 
+                                      id="edit-departure-time" 
+                                      type="time"
+                                      value={editingFlight.departureTime}
+                                      onChange={(e) => setEditingFlight({
+                                        ...editingFlight, 
+                                        departureTime: e.target.value
+                                      })}
+                                    />
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-arrival-time">Arrival Time</Label>
+                                    <Input 
+                                      id="edit-arrival-time" 
+                                      type="time"
+                                      value={editingFlight.arrivalTime}
+                                      onChange={(e) => setEditingFlight({
+                                        ...editingFlight, 
+                                        arrivalTime: e.target.value
+                                      })}
+                                    />
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-date">Date</Label>
+                                    <Input 
+                                      id="edit-date" 
+                                      type="date"
+                                      value={format(new Date(editingFlight.date), "yyyy-MM-dd")}
+                                      onChange={(e) => setEditingFlight({
+                                        ...editingFlight, 
+                                        date: new Date(e.target.value)
+                                      })}
+                                    />
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-status">Status</Label>
+                                    <Select
+                                      value={editingFlight.status}
+                                      onValueChange={(value) => setEditingFlight({
+                                        ...editingFlight, 
+                                        status: value
+                                      })}
+                                    >
+                                      <SelectTrigger id="edit-status">
+                                        <SelectValue placeholder="Select status" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="scheduled">Scheduled</SelectItem>
+                                        <SelectItem value="on-time">On Time</SelectItem>
+                                        <SelectItem value="delayed">Delayed</SelectItem>
+                                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                                        <SelectItem value="completed">Completed</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-price">Price ($)</Label>
+                                    <Input 
+                                      id="edit-price" 
+                                      type="number"
+                                      value={editingFlight.price}
+                                      onChange={(e) => setEditingFlight({
+                                        ...editingFlight, 
+                                        price: parseFloat(e.target.value)
+                                      })}
+                                    />
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <Label htmlFor="edit-seats">Available Seats</Label>
+                                    <Input 
+                                      id="edit-seats" 
+                                      type="number"
+                                      value={editingFlight.seatsAvailable}
+                                      onChange={(e) => setEditingFlight({
+                                        ...editingFlight, 
+                                        seatsAvailable: parseInt(e.target.value)
+                                      })}
+                                    />
+                                  </div>
+                                </div>
+                                
+                                <DialogFooter>
+                                  <Button variant="outline" onClick={() => {
+                                    setEditingFlight(null);
+                                    setIsEditDialogOpen(false);
+                                  }}>
+                                    Cancel
+                                  </Button>
+                                  <Button onClick={handleEditFlight} disabled={loading}>
+                                    {loading ? (
+                                      <span className="flex items-center">
+                                        <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
+                                        Updating...
+                                      </span>
+                                    ) : (
+                                      "Save Changes"
+                                    )}
+                                  </Button>
+                                </DialogFooter>
+                              </>
+                            )}
+                          </DialogContent>
+                        </Dialog>
+                        
+                        <Dialog open={isDeleteDialogOpen && flightToDelete === flight.id} onOpenChange={(open) => {
+                          setIsDeleteDialogOpen(open);
+                          if (!open) setFlightToDelete(null);
+                        }}>
+                          <DialogTrigger asChild>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="text-destructive hover:bg-destructive/10"
+                              onClick={() => setFlightToDelete(flight.id)}
+                            >
+                              <Trash className="h-4 w-4" />
+                              <span className="sr-only md:not-sr-only md:ml-2">Delete</span>
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Confirm Deletion</DialogTitle>
+                              <DialogDescription>
+                                Are you sure you want to delete flight {flight.flightNumber}? This action cannot be undone.
+                              </DialogDescription>
+                            </DialogHeader>
+                            
+                            <div className="py-4">
+                              <div className="bg-muted p-3 rounded-md space-y-2">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-500">Flight Number:</span>
+                                  <span className="font-medium">{flight.flightNumber}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-500">Route:</span>
+                                  <span className="font-medium">
+                                    {flight.departureAirport.code} to {flight.arrivalAirport.code}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-500">Date:</span>
+                                  <span className="font-medium">
+                                    {format(new Date(flight.date), "MMM d, yyyy")}
+                                  </span>
+                                </div>
+                              </div>
+                              
+                              <div className="mt-4 flex items-center text-amber-600 bg-amber-50 p-3 rounded-md">
+                                <AlertCircle className="h-5 w-5 mr-2" />
+                                <p className="text-sm">
+                                  Deleting this flight will also remove all associated bookings.
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <DialogFooter>
+                              <Button variant="outline" onClick={() => {
+                                setFlightToDelete(null);
+                                setIsDeleteDialogOpen(false);
+                              }}>
+                                Cancel
+                              </Button>
+                              <Button variant="destructive" onClick={handleDeleteFlight} disabled={loading}>
+                                {loading ? (
+                                  <span className="flex items-center">
+                                    <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
+                                    Deleting...
+                                  </span>
+                                ) : (
+                                  "Delete Flight"
+                                )}
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </ScrollArea>
+          ) : (
+            <div className="py-12 text-center">
+              <div className="mb-4 flex justify-center">
+                {searchQuery || statusFilter !== "all" ? (
+                  <AlertCircle className="h-12 w-12 text-gray-400" />
+                ) : (
+                  <Plane className="h-12 w-12 text-gray-400" />
+                )}
+              </div>
+              <h3 className="text-lg font-medium text-gray-700 mb-2">
+                {searchQuery || statusFilter !== "all" ? "No flights found" : "No flights available"}
+              </h3>
+              <p className="text-gray-500 mb-4">
+                {searchQuery || statusFilter !== "all" 
+                  ? "Try adjusting your search or filter criteria"
+                  : "Add your first flight to get started"
+                }
+              </p>
+              {!searchQuery && statusFilter === "all" && (
+                <Button onClick={() => setIsNewDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add New Flight
+                </Button>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };
