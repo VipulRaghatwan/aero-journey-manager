@@ -1,16 +1,14 @@
-
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { Plane, CreditCard, User, CalendarDays, Clock, MapPin, AlertCircle } from "lucide-react";
+import { Plane, User, CalendarDays, Clock, MapPin, AlertCircle } from "lucide-react";
 import FlightCard, { FlightType } from "@/components/flights/FlightCard";
 import { format } from "date-fns";
 import dbService from "@/services/dbService";
@@ -34,24 +32,17 @@ const BookFlight = () => {
     name: user?.name || "",
     email: user?.email || "",
     phone: "",
-    address: "",
     passportNumber: ""
-  });
-  
-  const [paymentDetails, setPaymentDetails] = useState({
-    cardNumber: "",
-    cardName: "",
-    expiryDate: "",
-    cvv: ""
   });
   
   const [currentTab, setCurrentTab] = useState("search");
   const [seatSelection, setSeatSelection] = useState("");
   const [availableSeats, setAvailableSeats] = useState<string[]>([]);
+  const [bookingConfirmed, setBookingConfirmed] = useState(false);
+  const [errors, setErrors] = useState<any>({});
   
   useEffect(() => {
     if (flightId) {
-      // If flightId is provided, fetch that specific flight
       setLoading(true);
       dbService.getFlightById(flightId)
         .then(flight => {
@@ -70,17 +61,10 @@ const BookFlight = () => {
         })
         .finally(() => setLoading(false));
     } else if (Object.keys(searchCriteria).length > 0) {
-      // If search criteria is provided via state, perform search automatically
       handleSearch();
     }
   }, [flightId]);
-  
-  useEffect(() => {
-    if (selectedFlight) {
-      generateAvailableSeats(selectedFlight.seatsAvailable);
-    }
-  }, [selectedFlight]);
-  
+
   const generateAvailableSeats = (count: number) => {
     const seats = [];
     const rows = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -96,13 +80,50 @@ const BookFlight = () => {
     setAvailableSeats(seats);
   };
   
+  const validateSearch = () => {
+    const errors: any = {};
+    if (!searchCriteria.from) errors.from = "Departure airport is required";
+    if (!searchCriteria.to) errors.to = "Arrival airport is required";
+    if (!searchCriteria.date) errors.date = "Date is required";
+    if (searchCriteria.from === searchCriteria.to) {
+      errors.to = "Departure and arrival airports cannot be the same";
+    }
+    setErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const validatePassengerDetails = () => {
+    const errors: any = {};
+    if (!passenger.name.trim()) errors.name = "Name is required";
+    if (!passenger.phone.trim()) errors.phone = "Phone number is required";
+    if (!passenger.passportNumber.trim()) errors.passportNumber = "Passport/ID number is required";
+    if (!seatSelection) errors.seat = "Please select a seat";
+    
+    const phoneRegex = /^\+?[\d\s-]{10,}$/;
+    if (passenger.phone && !phoneRegex.test(passenger.phone)) {
+      errors.phone = "Please enter a valid phone number";
+    }
+    
+    setErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSearch = () => {
+    if (!validateSearch()) return;
+    
     setLoading(true);
     setSearchPerformed(true);
     
     dbService.searchFlights(searchCriteria)
       .then(results => {
         setFlights(results);
+        if (results.length === 0) {
+          toast({
+            title: "No Flights Available",
+            description: "No flights found for the selected criteria. Please try different dates or locations.",
+            variant: "default"
+          });
+        }
       })
       .catch(error => {
         console.error("Search error:", error);
@@ -121,6 +142,8 @@ const BookFlight = () => {
   };
   
   const handleBooking = () => {
+    if (!validatePassengerDetails()) return;
+    
     if (!selectedFlight || !user) return;
     
     setLoading(true);
@@ -137,12 +160,11 @@ const BookFlight = () => {
     
     dbService.createBooking(bookingData)
       .then(booking => {
+        setBookingConfirmed(true);
         toast({
           title: "Booking Confirmed!",
           description: `Your flight has been booked successfully. Booking reference: ${booking.id}`,
         });
-        
-        navigate("/my-bookings");
       })
       .catch(error => {
         console.error("Booking error:", error);
@@ -155,6 +177,102 @@ const BookFlight = () => {
       .finally(() => setLoading(false));
   };
   
+  const renderBookingConfirmation = () => {
+    if (!selectedFlight) return null;
+    
+    return (
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Booking Confirmation</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <h3 className="font-semibold text-green-800 mb-2">
+              ✅ Your flight is booked!
+            </h3>
+            <p className="text-green-700">
+              Thank you for booking with us. Your booking details are below.
+            </p>
+          </div>
+          
+          <div className="grid gap-4">
+            <div className="border rounded-lg p-4">
+              <h4 className="font-medium mb-3">Passenger Details</h4>
+              <div className="grid gap-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Name:</span>
+                  <span className="font-medium">{passenger.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Email:</span>
+                  <span className="font-medium">{passenger.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Phone:</span>
+                  <span className="font-medium">{passenger.phone}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Seat:</span>
+                  <span className="font-medium">{seatSelection}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="border rounded-lg p-4">
+              <h4 className="font-medium mb-3">Flight Details</h4>
+              <div className="grid gap-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Flight Number:</span>
+                  <span className="font-medium">{selectedFlight.flightNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Date:</span>
+                  <span className="font-medium">
+                    {format(new Date(selectedFlight.date), "MMMM d, yyyy")}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Departure:</span>
+                  <span className="font-medium">
+                    {selectedFlight.departureAirport.city} ({selectedFlight.departureTime})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Arrival:</span>
+                  <span className="font-medium">
+                    {selectedFlight.arrivalAirport.city} ({selectedFlight.arrivalTime})
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex gap-4 pt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => navigate("/my-bookings")}
+              className="flex-1"
+            >
+              View All Bookings
+            </Button>
+            <Button 
+              onClick={() => {
+                setSearchCriteria({});
+                setSelectedFlight(null);
+                setBookingConfirmed(false);
+                setCurrentTab("search");
+                navigate("/book-flight");
+              }}
+              className="flex-1"
+            >
+              Book Another Flight
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-screen-xl">
       <div className="mb-8">
@@ -162,411 +280,268 @@ const BookFlight = () => {
         <p className="text-gray-600">Search and book your next journey with SkyWave Airlines</p>
       </div>
       
-      <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="search">Search Flights</TabsTrigger>
-          <TabsTrigger value="passenger" disabled={!selectedFlight}>Passenger Details</TabsTrigger>
-          <TabsTrigger value="payment" disabled={!selectedFlight || !passenger.name}>Payment</TabsTrigger>
-        </TabsList>
-        
-        {/* Search Tab */}
-        <TabsContent value="search">
-          <Card>
-            <CardHeader>
-              <CardTitle>Flight Search</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="from">From</Label>
-                  <Select 
-                    value={searchCriteria.from || ""} 
-                    onValueChange={(value) => setSearchCriteria({...searchCriteria, from: value})}
-                  >
-                    <SelectTrigger id="from">
-                      <SelectValue placeholder="Departure Airport" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="JFK">New York (JFK)</SelectItem>
-                      <SelectItem value="LAX">Los Angeles (LAX)</SelectItem>
-                      <SelectItem value="ORD">Chicago (ORD)</SelectItem>
-                      <SelectItem value="ATL">Atlanta (ATL)</SelectItem>
-                      <SelectItem value="SFO">San Francisco (SFO)</SelectItem>
-                      <SelectItem value="LHR">London (LHR)</SelectItem>
-                      <SelectItem value="CDG">Paris (CDG)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div>
-                  <Label htmlFor="to">To</Label>
-                  <Select 
-                    value={searchCriteria.to || ""} 
-                    onValueChange={(value) => setSearchCriteria({...searchCriteria, to: value})}
-                  >
-                    <SelectTrigger id="to">
-                      <SelectValue placeholder="Arrival Airport" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="JFK">New York (JFK)</SelectItem>
-                      <SelectItem value="LAX">Los Angeles (LAX)</SelectItem>
-                      <SelectItem value="ORD">Chicago (ORD)</SelectItem>
-                      <SelectItem value="ATL">Atlanta (ATL)</SelectItem>
-                      <SelectItem value="SFO">San Francisco (SFO)</SelectItem>
-                      <SelectItem value="LHR">London (LHR)</SelectItem>
-                      <SelectItem value="CDG">Paris (CDG)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div>
-                  <Label htmlFor="date">Date</Label>
-                  <Input 
-                    id="date" 
-                    type="date" 
-                    value={searchCriteria.date || ""} 
-                    onChange={(e) => setSearchCriteria({...searchCriteria, date: e.target.value})}
-                  />
-                </div>
-              </div>
-              
-              <Button onClick={handleSearch} className="w-full" disabled={loading}>
-                {loading ? (
-                  <span className="flex items-center">
-                    <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
-                    Searching...
-                  </span>
-                ) : (
-                  <span className="flex items-center">
-                    <Plane className="mr-2 h-4 w-4" />
-                    Search Flights
-                  </span>
-                )}
-              </Button>
-              
-              {searchPerformed && (
-                <div className="mt-8 space-y-6">
-                  <h2 className="text-xl font-bold">Search Results</h2>
+      {bookingConfirmed ? (
+        renderBookingConfirmation()
+      ) : (
+        <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="search">Search Flights</TabsTrigger>
+            <TabsTrigger value="passenger" disabled={!selectedFlight}>
+              Passenger Details
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="search">
+            <Card>
+              <CardHeader>
+                <CardTitle>Flight Search</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="from">From</Label>
+                    <Select 
+                      value={searchCriteria.from || ""} 
+                      onValueChange={(value) => {
+                        setSearchCriteria({...searchCriteria, from: value});
+                        setErrors({...errors, from: null});
+                      }}
+                    >
+                      <SelectTrigger id="from" className={errors.from ? "border-red-500" : ""}>
+                        <SelectValue placeholder="Departure Airport" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="JFK">New York (JFK)</SelectItem>
+                        <SelectItem value="LAX">Los Angeles (LAX)</SelectItem>
+                        <SelectItem value="ORD">Chicago (ORD)</SelectItem>
+                        <SelectItem value="ATL">Atlanta (ATL)</SelectItem>
+                        <SelectItem value="SFO">San Francisco (SFO)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {errors.from && (
+                      <p className="text-sm text-red-500">{errors.from}</p>
+                    )}
+                  </div>
                   
-                  {flights.length > 0 ? (
-                    <div className="space-y-4">
-                      {flights.map((flight) => (
-                        <div key={flight.id} className="relative">
-                          <FlightCard flight={flight} />
-                          <div className="mt-4 px-6 pb-6">
-                            <Button 
-                              onClick={() => handleFlightSelection(flight)}
-                              disabled={flight.seatsAvailable < 1 || flight.status === 'cancelled'}
-                              className="w-full md:w-auto"
-                            >
-                              Select This Flight
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="to">To</Label>
+                    <Select 
+                      value={searchCriteria.to || ""} 
+                      onValueChange={(value) => {
+                        setSearchCriteria({...searchCriteria, to: value});
+                        setErrors({...errors, to: null});
+                      }}
+                    >
+                      <SelectTrigger id="to" className={errors.to ? "border-red-500" : ""}>
+                        <SelectValue placeholder="Arrival Airport" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="JFK">New York (JFK)</SelectItem>
+                        <SelectItem value="LAX">Los Angeles (LAX)</SelectItem>
+                        <SelectItem value="ORD">Chicago (ORD)</SelectItem>
+                        <SelectItem value="ATL">Atlanta (ATL)</SelectItem>
+                        <SelectItem value="SFO">San Francisco (SFO)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {errors.to && (
+                      <p className="text-sm text-red-500">{errors.to}</p>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="date">Date</Label>
+                    <Input 
+                      id="date" 
+                      type="date" 
+                      value={searchCriteria.date || ""} 
+                      onChange={(e) => {
+                        setSearchCriteria({...searchCriteria, date: e.target.value});
+                        setErrors({...errors, date: null});
+                      }}
+                      className={errors.date ? "border-red-500" : ""}
+                      min={format(new Date(), "yyyy-MM-dd")}
+                    />
+                    {errors.date && (
+                      <p className="text-sm text-red-500">{errors.date}</p>
+                    )}
+                  </div>
+                </div>
+                
+                <Button onClick={handleSearch} className="w-full" disabled={loading}>
+                  {loading ? (
+                    <span className="flex items-center">
+                      <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
+                      Searching...
+                    </span>
                   ) : (
-                    <Card className="bg-muted/40">
-                      <CardContent className="flex flex-col items-center justify-center py-12">
-                        <AlertCircle className="h-12 w-12 text-gray-400 mb-4" />
-                        <h3 className="text-lg font-medium text-gray-700 mb-2">No flights found</h3>
-                        <p className="text-gray-500 mb-4 text-center">
-                          We couldn't find any flights matching your search criteria.
-                          Try different dates or airports.
-                        </p>
-                      </CardContent>
-                    </Card>
+                    <span className="flex items-center">
+                      <Plane className="mr-2 h-4 w-4" />
+                      Search Flights
+                    </span>
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* Passenger Details Tab */}
-        <TabsContent value="passenger">
-          {selectedFlight && (
-            <div className="space-y-6">
-              <Card className="mb-6">
-                <CardContent className="pt-6">
-                  <FlightCard flight={selectedFlight} />
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader>
-                  <CardTitle>Passenger Information</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="passenger-name">Full Name</Label>
-                      <Input 
-                        id="passenger-name" 
-                        value={passenger.name} 
-                        onChange={(e) => setPassenger({...passenger, name: e.target.value})}
-                        placeholder="Enter your full name"
-                      />
-                    </div>
+                </Button>
+                
+                {searchPerformed && (
+                  <div className="mt-8 space-y-6">
+                    <h2 className="text-xl font-bold">Search Results</h2>
                     
-                    <div className="space-y-2">
-                      <Label htmlFor="passenger-email">Email</Label>
-                      <Input 
-                        id="passenger-email" 
-                        type="email" 
-                        value={passenger.email} 
-                        onChange={(e) => setPassenger({...passenger, email: e.target.value})}
-                        placeholder="Enter your email"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="passenger-phone">Phone Number</Label>
-                      <Input 
-                        id="passenger-phone" 
-                        value={passenger.phone} 
-                        onChange={(e) => setPassenger({...passenger, phone: e.target.value})}
-                        placeholder="Enter your phone number"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="passenger-passport">Passport/ID Number</Label>
-                      <Input 
-                        id="passenger-passport" 
-                        value={passenger.passportNumber} 
-                        onChange={(e) => setPassenger({...passenger, passportNumber: e.target.value})}
-                        placeholder="Enter passport or ID number"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2 col-span-2">
-                      <Label htmlFor="passenger-address">Address</Label>
-                      <Input 
-                        id="passenger-address" 
-                        value={passenger.address} 
-                        onChange={(e) => setPassenger({...passenger, address: e.target.value})}
-                        placeholder="Enter your address"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-medium">Seat Selection</h3>
-                    <p className="text-sm text-gray-500">
-                      Please select your preferred seat from the available options.
-                    </p>
-                    
-                    <div className="grid grid-cols-6 gap-2">
-                      {availableSeats.map((seat) => (
-                        <div key={seat} className="text-center">
-                          <button
-                            className={`w-12 h-12 rounded-md border transition-colors ${
-                              seatSelection === seat
-                                ? "bg-primary text-white border-primary"
-                                : "bg-white hover:border-primary"
-                            }`}
-                            onClick={() => setSeatSelection(seat)}
-                          >
-                            {seat}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="pt-4 flex justify-between">
-                    <Button variant="outline" onClick={() => setCurrentTab("search")}>
-                      Back to Search
-                    </Button>
-                    <Button 
-                      onClick={() => setCurrentTab("payment")}
-                      disabled={!passenger.name || !passenger.email || !seatSelection}
-                    >
-                      Continue to Payment
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-        </TabsContent>
-        
-        {/* Payment Tab */}
-        <TabsContent value="payment">
-          {selectedFlight && (
-            <div className="space-y-6">
-              <Card className="mb-6">
-                <CardHeader>
-                  <CardTitle>Booking Summary</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center space-x-4">
-                      <div className="bg-primary/10 p-3 rounded-full">
-                        <Plane className="h-5 w-5 text-primary" />
+                    {flights.length > 0 ? (
+                      <div className="space-y-4">
+                        {flights.map((flight) => (
+                          <div key={flight.id} className="relative">
+                            <FlightCard flight={flight} />
+                            <div className="mt-4 px-6 pb-6">
+                              <Button 
+                                onClick={() => handleFlightSelection(flight)}
+                                disabled={flight.seatsAvailable < 1 || flight.status === 'cancelled'}
+                                className="w-full md:w-auto"
+                              >
+                                Select This Flight
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div>
-                        <h3 className="font-medium">
-                          {selectedFlight.departureAirport.city} to {selectedFlight.arrivalAirport.city}
-                        </h3>
-                        <p className="text-sm text-gray-500">
-                          Flight {selectedFlight.flightNumber}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                      <div className="flex items-center space-x-3">
-                        <CalendarDays className="h-5 w-5 text-gray-400" />
-                        <div>
-                          <p className="text-sm text-gray-500">Date</p>
-                          <p className="font-medium">
-                            {format(new Date(selectedFlight.date), "MMM d, yyyy")}
+                    ) : (
+                      <Card className="bg-muted/40">
+                        <CardContent className="flex flex-col items-center justify-center py-12">
+                          <AlertCircle className="h-12 w-12 text-gray-400 mb-4" />
+                          <h3 className="text-lg font-medium text-gray-700 mb-2">No flights found</h3>
+                          <p className="text-gray-500 mb-4 text-center">
+                            We couldn't find any flights matching your search criteria.
+                            Try different dates or airports.
                           </p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <Clock className="h-5 w-5 text-gray-400" />
-                        <div>
-                          <p className="text-sm text-gray-500">Departure</p>
-                          <p className="font-medium">
-                            {selectedFlight.departureTime}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-3">
-                        <MapPin className="h-5 w-5 text-gray-400" />
-                        <div>
-                          <p className="text-sm text-gray-500">Seat</p>
-                          <p className="font-medium">{seatSelection}</p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="border-t pt-4 mt-4">
-                      <div className="flex items-center space-x-3">
-                        <User className="h-5 w-5 text-gray-400" />
-                        <div>
-                          <p className="text-sm text-gray-500">Passenger</p>
-                          <p className="font-medium">{passenger.name}</p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-muted/30 p-4 rounded-md mt-4">
-                      <div className="flex justify-between">
-                        <span>Base fare</span>
-                        <span>${selectedFlight.price}</span>
-                      </div>
-                      <div className="flex justify-between text-sm text-gray-500 mt-2">
-                        <span>Taxes and fees</span>
-                        <span>$25</span>
-                      </div>
-                      <div className="flex justify-between font-bold text-lg mt-4 pt-4 border-t">
-                        <span>Total amount</span>
-                        <span>${selectedFlight.price + 25}</span>
-                      </div>
-                    </div>
+                        </CardContent>
+                      </Card>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader>
-                  <CardTitle>Payment Information</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <RadioGroup defaultValue="credit-card" className="space-y-3">
-                    <div className="flex items-center space-x-3 bg-muted/30 p-3 rounded-md cursor-pointer">
-                      <RadioGroupItem value="credit-card" id="credit-card" />
-                      <Label htmlFor="credit-card" className="cursor-pointer flex-1">
-                        <div className="flex items-center">
-                          <CreditCard className="h-5 w-5 mr-2" />
-                          <span>Credit/Debit Card</span>
-                        </div>
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                  
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="card-number">Card Number</Label>
-                      <Input 
-                        id="card-number" 
-                        value={paymentDetails.cardNumber} 
-                        onChange={(e) => setPaymentDetails({...paymentDetails, cardNumber: e.target.value})}
-                        placeholder="1234 5678 9012 3456"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="card-name">Name on Card</Label>
-                      <Input 
-                        id="card-name" 
-                        value={paymentDetails.cardName} 
-                        onChange={(e) => setPaymentDetails({...paymentDetails, cardName: e.target.value})}
-                        placeholder="John Doe"
-                      />
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="passenger">
+            {selectedFlight && (
+              <div className="space-y-6">
+                <Card className="mb-6">
+                  <CardContent className="pt-6">
+                    <FlightCard flight={selectedFlight} />
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Passenger Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="expiry-date">Expiry Date</Label>
+                        <Label htmlFor="passenger-name">Full Name</Label>
                         <Input 
-                          id="expiry-date" 
-                          value={paymentDetails.expiryDate} 
-                          onChange={(e) => setPaymentDetails({...paymentDetails, expiryDate: e.target.value})}
-                          placeholder="MM/YY"
+                          id="passenger-name" 
+                          value={passenger.name} 
+                          onChange={(e) => {
+                            setPassenger({...passenger, name: e.target.value});
+                            setErrors({...errors, name: null});
+                          }}
+                          placeholder="Enter your full name"
+                          className={errors.name ? "border-red-500" : ""}
                         />
+                        {errors.name && (
+                          <p className="text-sm text-red-500">{errors.name}</p>
+                        )}
                       </div>
                       
                       <div className="space-y-2">
-                        <Label htmlFor="cvv">CVV</Label>
+                        <Label htmlFor="passenger-phone">Phone Number</Label>
                         <Input 
-                          id="cvv" 
-                          value={paymentDetails.cvv} 
-                          onChange={(e) => setPaymentDetails({...paymentDetails, cvv: e.target.value})}
-                          placeholder="123"
-                          type="password"
-                          maxLength={4}
+                          id="passenger-phone" 
+                          value={passenger.phone} 
+                          onChange={(e) => {
+                            setPassenger({...passenger, phone: e.target.value});
+                            setErrors({...errors, phone: null});
+                          }}
+                          placeholder="Enter your phone number"
+                          className={errors.phone ? "border-red-500" : ""}
                         />
+                        {errors.phone && (
+                          <p className="text-sm text-red-500">{errors.phone}</p>
+                        )}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="passenger-passport">Passport/ID Number</Label>
+                        <Input 
+                          id="passenger-passport" 
+                          value={passenger.passportNumber} 
+                          onChange={(e) => {
+                            setPassenger({...passenger, passportNumber: e.target.value});
+                            setErrors({...errors, passportNumber: null});
+                          }}
+                          placeholder="Enter passport or ID number"
+                          className={errors.passportNumber ? "border-red-500" : ""}
+                        />
+                        {errors.passportNumber && (
+                          <p className="text-sm text-red-500">{errors.passportNumber}</p>
+                        )}
                       </div>
                     </div>
-                  </div>
-                  
-                  <div className="pt-4 flex justify-between">
-                    <Button variant="outline" onClick={() => setCurrentTab("passenger")}>
-                      Back
-                    </Button>
-                    <Button 
-                      onClick={handleBooking}
-                      disabled={
-                        loading || 
-                        !paymentDetails.cardNumber || 
-                        !paymentDetails.cardName || 
-                        !paymentDetails.expiryDate || 
-                        !paymentDetails.cvv
-                      }
-                    >
-                      {loading ? (
-                        <span className="flex items-center">
-                          <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
-                          Processing...
-                        </span>
-                      ) : (
-                        "Confirm Booking"
+                    
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-medium">Seat Selection</h3>
+                      <p className="text-sm text-gray-500">
+                        Please select your preferred seat from the available options.
+                      </p>
+                      
+                      <div className="grid grid-cols-6 gap-2">
+                        {availableSeats.map((seat) => (
+                          <div key={seat} className="text-center">
+                            <button
+                              className={`w-12 h-12 rounded-md border transition-colors ${
+                                seatSelection === seat
+                                  ? "bg-primary text-white border-primary"
+                                  : "bg-white hover:border-primary"
+                              }`}
+                              onClick={() => {
+                                setSeatSelection(seat);
+                                setErrors({...errors, seat: null});
+                              }}
+                            >
+                              {seat}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      {errors.seat && (
+                        <p className="text-sm text-red-500">{errors.seat}</p>
                       )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+                    </div>
+                    
+                    <div className="pt-4 flex justify-between">
+                      <Button variant="outline" onClick={() => setCurrentTab("search")}>
+                        Back to Search
+                      </Button>
+                      <Button 
+                        onClick={handleBooking}
+                        disabled={loading}
+                      >
+                        {loading ? (
+                          <span className="flex items-center">
+                            <span className="animate-spin h-4 w-4 mr-2 border-2 border-t-transparent rounded-full"></span>
+                            Processing...
+                          </span>
+                        ) : (
+                          "Confirm Booking"
+                        )}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 };
